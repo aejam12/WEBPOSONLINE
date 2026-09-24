@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Galaxy Solutions - Control de Inventario</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Lector jsQR ultra rápido -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -15,15 +14,15 @@
       width: 100%;
       max-width: 340px;
       height: 100px;
-      border: 2px solid #6366f1;
+      border: 3px solid #6366f1;
       border-radius: 1rem;
       overflow: hidden;
       margin: 0 auto;
     }
     .laser-line {
       position: absolute;
-      width: 100%;
-      height: 3px;
+      width: 105%;
+      height: 1px;
       background: #ef4444;
       box-shadow: 0 0 12px #ef4444;
       animation: scanMove 1.2s infinite alternate ease-in-out;
@@ -37,11 +36,10 @@
 <body class="bg-gray-100 min-h-screen text-gray-800 flex flex-col">
 
   <script>
-    // URL de tu aplicación Google Apps Script
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwu_J2bBnAT1mw5QNhLKay2r68UJ6xfU9pww9RKxr5zDkvQaHCAveCFVUqH1BcGnQytfQ/exec";
+    // ⚠️ PEGA AQUÍ TU URL COPIADA DE APPS SCRIPT
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyoAqL5zxpiZGWVhin8BSt0_UYGeYiJRMKt-LYatBfbOtovbRqhYjRoKfLC26KXQc8bvg/exec";
   </script>
 
-  <!-- Navbar -->
   <header class="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10">
     <button onclick="toggleMenu()" class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 focus:outline-none">
       <i data-lucide="menu" class="w-6 h-6"></i>
@@ -50,7 +48,6 @@
     <div class="w-6"></div>
   </header>
 
-  <!-- Sidebar -->
   <div id="overlayMenu" onclick="closeMenu()" class="fixed inset-0 bg-black/50 z-20 hidden transition-opacity"></div>
   <aside id="sideMenu" class="fixed top-0 left-0 h-full w-72 bg-white shadow-2xl z-30 transform -translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between">
     <div>
@@ -78,12 +75,10 @@
     </div>
   </aside>
 
-  <!-- Main -->
   <main class="flex-1 p-4 max-w-md w-full mx-auto">
     <section id="sec-venta" class="space-y-4">
       <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
         
-        <!-- Visor de Escáner ultra rápido -->
         <div id="scanner-container" class="hidden mb-4 p-3 bg-gray-900 rounded-2xl text-center">
           <div class="scanner-box">
             <video id="webcam" class="w-full h-full object-cover" playsinline></video>
@@ -144,7 +139,6 @@
       </div>
     </section>
 
-    <!-- Tab Inventario -->
     <section id="sec-inventario" class="space-y-4 hidden">
       <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <div class="flex items-center justify-between mb-3">
@@ -175,7 +169,6 @@
     let videoStream = null;
     let animFrameId = null;
 
-    // Escaneo rápido continuo a nivel de mapa de bits (60 FPS)
     function iniciarCamaraRapida() {
       const container = document.getElementById('scanner-container');
       const video = document.getElementById('webcam');
@@ -206,15 +199,12 @@
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
-        // Decodificación ultra rápida con jsQR
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
           inversionAttempts: "dontInvert",
         });
 
         if (code && code.data) {
           document.getElementById('qr').value = code.data;
-          // Feedback de vibración táctil
           if (navigator.vibrate) navigator.vibrate(100);
           detenerCamara();
           return;
@@ -232,12 +222,12 @@
       document.getElementById('scanner-container').classList.add('hidden');
     }
 
-    // Comunicación sin bloqueos usando JSONP
+    // Petición JSONP segura libre de bloqueos de red
     function enviarPeticionJSONP(params, callback) {
       const callbackName = 'jsonp_cb_' + Math.round(100000 * Math.random());
       window[callbackName] = function(data) {
         delete window[callbackName];
-        document.body.removeChild(script);
+        if (script.parentNode) script.parentNode.removeChild(script);
         callback(data);
       };
 
@@ -246,8 +236,8 @@
       script.src = `${APPS_SCRIPT_URL}?${params.toString()}`;
       script.onerror = function() {
         delete window[callbackName];
-        document.body.removeChild(script);
-        callback({ status: 'error', mensaje: 'Error al conectar con Google Sheets.' });
+        if (script.parentNode) script.parentNode.removeChild(script);
+        callback({ status: 'error', mensaje: 'Error al conectar con la URL de Google Script.' });
       };
       document.body.appendChild(script);
     }
@@ -258,7 +248,7 @@
       const msg = document.getElementById('mensaje');
       
       btn.disabled = true;
-      btn.textContent = "Guardando...";
+      btn.textContent = "Procesando...";
       msg.classList.add('hidden');
 
       const params = new URLSearchParams({
@@ -291,7 +281,7 @@
       const params = new URLSearchParams({ action: "obtener" });
       enviarPeticionJSONP(params, function(res) {
         if (!res.data || res.data.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-400">Sin productos</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-400">Sin productos registrados</td></tr>';
           return;
         }
         tbody.innerHTML = res.data.map(p => {
@@ -338,6 +328,9 @@
         f.style.display = texto.includes(q) ? '' : 'none';
       });
     }
+  </script>
+</body>
+</html>
   </script>
 </body>
 </html>
