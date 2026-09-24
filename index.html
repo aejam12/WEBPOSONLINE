@@ -5,56 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Galaxy Solutions - Control de Inventario</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <!-- Lector jsQR ultra rápido -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
-    /* Forzar visor rectangular de lectura rápida */
-    #reader {
-      width: 100% !important;
-      max-width: 360px !important;
+    .scanner-box {
+      position: relative;
+      width: 100%;
+      max-width: 340px;
+      height: 180px;
+      border: 3px solid #6366f1;
+      border-radius: 1rem;
+      overflow: hidden;
       margin: 0 auto;
-    }
-    #reader video {
-      object-fit: cover !important;
-      border-radius: 0.75rem;
-    }
-    /* Estilo del área de escaneo rectangular */
-    #reader__scan_region {
-      border: 3px solid #6366f1 !important;
-      border-radius: 12px !important;
-    }
-    /* Animación Láser de Barrido */
-    @keyframes scanAnimation {
-      0% { top: 5%; }
-      50% { top: 90%; }
-      100% { top: 5%; }
-    }
-    .laser-overlay {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      pointer-events: none;
-      z-index: 20;
     }
     .laser-line {
       position: absolute;
-      left: 5%;
-      width: 90%;
+      width: 100%;
       height: 3px;
-      background-color: #ef4444;
-      box-shadow: 0 0 10px #ef4444, 0 0 15px #ef4444;
-      animation: scanAnimation 1.5s infinite ease-in-out;
+      background: #ef4444;
+      box-shadow: 0 0 12px #ef4444;
+      animation: scanMove 1.2s infinite alternate ease-in-out;
+    }
+    @keyframes scanMove {
+      from { top: 5%; }
+      to { top: 90%; }
     }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800 flex flex-col">
 
   <script>
-    // ⚠️ PEGA AQUÍ LA NUEVA URL QUE OBTUVISTE EN EL PASO 1
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx6mOaVumwdFbO24AkbKLzO7wN6d3jr5v_UXoVkN3fP_PeitqOD86cAWumfpV3dMyk/exec";
+    // URL de tu aplicación Google Apps Script
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwu_J2bBnAT1mw5QNhLKay2r68UJ6xfU9pww9RKxr5zDkvQaHCAveCFVUqH1BcGnQytfQ/exec";
   </script>
 
-  <!-- Header -->
+  <!-- Navbar -->
   <header class="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10">
     <button onclick="toggleMenu()" class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 focus:outline-none">
       <i data-lucide="menu" class="w-6 h-6"></i>
@@ -91,26 +78,24 @@
     </div>
   </aside>
 
-  <!-- Main Content -->
+  <!-- Main -->
   <main class="flex-1 p-4 max-w-md w-full mx-auto">
     <section id="sec-venta" class="space-y-4">
       <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
         
-        <!-- Contenedor Camara Rectangular -->
-        <div id="reader-container" class="hidden mb-4 p-3 bg-gray-900 rounded-2xl relative shadow-lg">
-          <div class="relative w-full overflow-hidden rounded-xl bg-black flex justify-center">
-            <div id="reader"></div>
-            <!-- Laser Barrido -->
-            <div id="laserContainer" class="laser-overlay hidden">
-              <div class="laser-line"></div>
-            </div>
+        <!-- Visor de Escáner ultra rápido -->
+        <div id="scanner-container" class="hidden mb-4 p-3 bg-gray-900 rounded-2xl text-center">
+          <div class="scanner-box">
+            <video id="webcam" class="w-full h-full object-cover" playsinline></video>
+            <div class="laser-line"></div>
           </div>
-          <button onclick="detenerEscaneo()" class="mt-3 w-full bg-red-600 text-white py-2 rounded-xl font-medium text-sm hover:bg-red-700 transition">
+          <canvas id="canvas" class="hidden"></canvas>
+          <button onclick="detenerCamara()" class="mt-3 w-full bg-red-600 text-white py-2 rounded-xl font-medium text-sm hover:bg-red-700 transition">
             Cancelar Escaneo
           </button>
         </div>
         
-        <button id="btnCamara" onclick="iniciarEscaneoVivo()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium mb-4 hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-sm">
+        <button id="btnCamara" onclick="iniciarCamaraRapida()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium mb-4 hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-sm">
           <i data-lucide="camera" class="w-5 h-5"></i> Escanear Código QR en Vivo
         </button>
 
@@ -187,76 +172,84 @@
 
   <script>
     lucide.createIcons();
-    let html5QrcodeScanner = null;
+    let videoStream = null;
+    let animFrameId = null;
 
-    function iniciarEscaneoVivo() {
-      const container = document.getElementById('reader-container');
-      const laser = document.getElementById('laserContainer');
-      
+    // Escaneo rápido continuo a nivel de mapa de bits (60 FPS)
+    function iniciarCamaraRapida() {
+      const container = document.getElementById('scanner-container');
+      const video = document.getElementById('webcam');
       container.classList.remove('hidden');
 
-      if (!html5QrcodeScanner) {
-        html5QrcodeScanner = new Html5Qrcode("reader");
-      }
-
-      // Configuración de recuadro rectangular (320px x 160px) y alta velocidad (30 FPS)
-      const config = { 
-        fps: 30, 
-        qrbox: { width: 320, height: 160 },
-        aspectRatio: 1.777778
-      };
-
-      const qrSuccessCallback = (decodedText) => {
-        document.getElementById('qr').value = decodedText;
-        detenerEscaneo();
-      };
-
-      html5QrcodeScanner.start({ facingMode: "environment" }, config, qrSuccessCallback)
-        .then(() => {
-          laser.classList.remove('hidden');
-        })
-        .catch(() => {
-          html5QrcodeScanner.start({ facingMode: "user" }, config, qrSuccessCallback)
-            .then(() => laser.classList.remove('hidden'))
-            .catch(err => {
-              alert("No se pudo iniciar la cámara: " + err);
-              detenerEscaneo();
-            });
-        });
-    }
-
-    function detenerEscaneo() {
-      const container = document.getElementById('reader-container');
-      const laser = document.getElementById('laserContainer');
-      
-      laser.classList.add('hidden');
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.stop().then(() => {
-          container.classList.add('hidden');
-        }).catch(() => {
-          container.classList.add('hidden');
-        });
-      } else {
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      }).then(stream => {
+        videoStream = stream;
+        video.srcObject = stream;
+        video.setAttribute("playsinline", true);
+        video.play();
+        animFrameId = requestAnimationFrame(escanearFrame);
+      }).catch(err => {
+        alert("Error al iniciar cámara: " + err);
         container.classList.add('hidden');
+      });
+    }
+
+    function escanearFrame() {
+      const video = document.getElementById('webcam');
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Decodificación ultra rápida con jsQR
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+
+        if (code && code.data) {
+          document.getElementById('qr').value = code.data;
+          // Feedback de vibración táctil
+          if (navigator.vibrate) navigator.vibrate(100);
+          detenerCamara();
+          return;
+        }
       }
+      animFrameId = requestAnimationFrame(escanearFrame);
     }
 
-    function toggleMenu() {
-      document.getElementById('sideMenu').classList.toggle('-translate-x-full');
-      document.getElementById('overlayMenu').classList.toggle('hidden');
+    function detenerCamara() {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+      }
+      document.getElementById('scanner-container').classList.add('hidden');
     }
 
-    function closeMenu() {
-      document.getElementById('sideMenu').classList.add('-translate-x-full');
-      document.getElementById('overlayMenu').classList.add('hidden');
-    }
+    // Comunicación sin bloqueos usando JSONP
+    function enviarPeticionJSONP(params, callback) {
+      const callbackName = 'jsonp_cb_' + Math.round(100000 * Math.random());
+      window[callbackName] = function(data) {
+        delete window[callbackName];
+        document.body.removeChild(script);
+        callback(data);
+      };
 
-    function navegarA(idSeccion, titulo) {
-      document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
-      document.getElementById(`sec-${idSeccion}`).classList.remove('hidden');
-      document.getElementById('tituloSeccion').textContent = titulo;
-      closeMenu();
-      if (idSeccion === 'inventario') cargarInventario();
+      const script = document.createElement('script');
+      params.append('callback', callbackName);
+      script.src = `${APPS_SCRIPT_URL}?${params.toString()}`;
+      script.onerror = function() {
+        delete window[callbackName];
+        document.body.removeChild(script);
+        callback({ status: 'error', mensaje: 'Error al conectar con Google Sheets.' });
+      };
+      document.body.appendChild(script);
     }
 
     function guardarInventario(e) {
@@ -265,7 +258,7 @@
       const msg = document.getElementById('mensaje');
       
       btn.disabled = true;
-      btn.textContent = "Procesando...";
+      btn.textContent = "Guardando...";
       msg.classList.add('hidden');
 
       const params = new URLSearchParams({
@@ -277,11 +270,7 @@
         cantMinima: document.getElementById('cantMinima').value
       });
 
-      fetch(`${APPS_SCRIPT_URL}?${params.toString()}`, {
-        method: "GET"
-      })
-      .then(res => res.json())
-      .then(res => {
+      enviarPeticionJSONP(params, function(res) {
         btn.disabled = false;
         btn.textContent = "Registrar Movimiento";
         msg.textContent = res.mensaje;
@@ -292,12 +281,6 @@
         } else {
           msg.className = "mt-4 p-3 text-center font-medium text-sm rounded-xl block bg-red-100 text-red-700 border border-red-200";
         }
-      })
-      .catch((error) => {
-        btn.disabled = false;
-        btn.textContent = "Registrar Movimiento";
-        msg.textContent = "Error al conectar con la base de datos.";
-        msg.className = "mt-4 p-3 text-center font-medium text-sm rounded-xl bg-red-100 text-red-700 border border-red-200 block";
       });
     }
 
@@ -305,9 +288,8 @@
       const tbody = document.getElementById('tablaInventarioBody');
       tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-400">Cargando...</td></tr>';
 
-      fetch(APPS_SCRIPT_URL)
-      .then(res => res.json())
-      .then(res => {
+      const params = new URLSearchParams({ action: "obtener" });
+      enviarPeticionJSONP(params, function(res) {
         if (!res.data || res.data.length === 0) {
           tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-400">Sin productos</td></tr>';
           return;
@@ -327,10 +309,25 @@
             </tr>
           `;
         }).join('');
-      })
-      .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-red-500">Error al cargar datos</td></tr>';
       });
+    }
+
+    function toggleMenu() {
+      document.getElementById('sideMenu').classList.toggle('-translate-x-full');
+      document.getElementById('overlayMenu').classList.toggle('hidden');
+    }
+
+    function closeMenu() {
+      document.getElementById('sideMenu').classList.add('-translate-x-full');
+      document.getElementById('overlayMenu').classList.add('hidden');
+    }
+
+    function navegarA(idSeccion, titulo) {
+      document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
+      document.getElementById(`sec-${idSeccion}`).classList.remove('hidden');
+      document.getElementById('tituloSeccion').textContent = titulo;
+      closeMenu();
+      if (idSeccion === 'inventario') cargarInventario();
     }
 
     function filtrarTabla() {
