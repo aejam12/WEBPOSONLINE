@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Galaxy Solutions - Control de Inventario</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lector de QR con UI mejorada -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800 flex flex-col">
 
-  <!-- Reemplaza con la URL generada en tu despliegue de Google Apps Script -->
   <script>
+    // PEGA AQUÍ TU URL ACTUALIZADA DE GOOGLE APPS SCRIPT
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxd5z4FoU1-3ep20cXdLDNqCAWpw9zBDwXggaOYMZPS2d2nL80ZalanIMpvFo64cRan7g/exec";
   </script>
 
@@ -24,7 +25,7 @@
     <div class="w-6"></div>
   </header>
 
-  <!-- Overlay y Menú Lateral -->
+  <!-- Menú Lateral -->
   <div id="overlayMenu" onclick="closeMenu()" class="fixed inset-0 bg-black/50 z-20 hidden transition-opacity"></div>
   <aside id="sideMenu" class="fixed top-0 left-0 h-full w-72 bg-white shadow-2xl z-30 transform -translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between">
     <div>
@@ -58,7 +59,12 @@
       <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
         
         <!-- Visor del escáner en vivo -->
-        <div id="reader" class="w-full bg-gray-900 rounded-xl mb-4 hidden overflow-hidden"></div>
+        <div id="reader-container" class="hidden mb-4 p-2 bg-gray-900 rounded-xl relative">
+          <div id="reader" class="w-full rounded-lg overflow-hidden"></div>
+          <button onclick="detenerEscaneo()" class="mt-2 w-full bg-red-600 text-white py-2 rounded-lg font-medium text-sm">
+            Cancelar Escaneo
+          </button>
+        </div>
         
         <button id="btnCamara" onclick="iniciarEscaneoVivo()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium mb-4 hover:bg-indigo-700 transition flex items-center justify-center gap-2">
           <i data-lucide="camera" class="w-5 h-5"></i> Escanear Código QR en Vivo
@@ -131,28 +137,45 @@
     lucide.createIcons();
     let html5QrcodeScanner = null;
 
-    // Escaneo en vivo vía cámara directo en el DOM
     function iniciarEscaneoVivo() {
-      const readerElem = document.getElementById('reader');
-      readerElem.classList.remove('hidden');
+      const container = document.getElementById('reader-container');
+      container.classList.remove('hidden');
 
       if (!html5QrcodeScanner) {
         html5QrcodeScanner = new Html5Qrcode("reader");
       }
 
+      // Configuración de escaneo optimizada para cámaras traseras de dispositivos móviles
+      const config = { 
+        fps: 15, 
+        qrbox: { width: 220, height: 220 },
+        aspectRatio: 1.0
+      };
+
       html5QrcodeScanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        config,
         (decodedText) => {
           document.getElementById('qr').value = decodedText;
-          html5QrcodeScanner.stop();
-          readerElem.classList.add('hidden');
+          detenerEscaneo();
         },
-        (errorMessage) => {}
+        (errorMessage) => {
+          // Ignorar errores de encuadre en tiempo real
+        }
       ).catch(err => {
-        alert("Error de acceso a cámara: " + err);
-        readerElem.classList.add('hidden');
+        alert("Error al iniciar cámara: " + err);
+        container.classList.add('hidden');
       });
+    }
+
+    function detenerEscaneo() {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().then(() => {
+          document.getElementById('reader-container').classList.add('hidden');
+        }).catch(() => {
+          document.getElementById('reader-container').classList.add('hidden');
+        });
+      }
     }
 
     function toggleMenu() {
@@ -179,6 +202,7 @@
       const msg = document.getElementById('mensaje');
       btn.disabled = true;
       btn.textContent = "Procesando...";
+      msg.classList.add('hidden');
 
       const datos = {
         action: "registrar",
@@ -189,22 +213,24 @@
         cantMinima: document.getElementById('cantMinima').value
       };
 
+      // Se utiliza mode: 'no-cors' para evitar bloqueos del navegador al enviar a Google Apps Script
       fetch(APPS_SCRIPT_URL, {
         method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(datos)
       })
-      .then(res => res.json())
-      .then(res => {
+      .then(() => {
         btn.disabled = false;
         btn.textContent = "Registrar Movimiento";
-        msg.textContent = res.mensaje;
-        msg.className = `mt-4 p-3 text-center font-medium text-sm rounded-xl block ${res.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
-        if (res.status === 'success') document.getElementById('invForm').reset();
+        msg.textContent = "Movimiento enviado exitosamente al servidor.";
+        msg.className = "mt-4 p-3 text-center font-medium text-sm rounded-xl block bg-green-100 text-green-700";
+        document.getElementById('invForm').reset();
       })
-      .catch(() => {
+      .catch((error) => {
         btn.disabled = false;
         btn.textContent = "Registrar Movimiento";
-        msg.textContent = "Error de comunicación.";
+        msg.textContent = "Error al enviar los datos.";
         msg.className = "mt-4 p-3 text-center font-medium text-sm rounded-xl bg-red-100 text-red-700 block";
       });
     }
@@ -222,11 +248,14 @@
         }
         tbody.innerHTML = res.data.map(p => `
           <tr>
-            <td class="p-2 font-semibold">${p.nombre}<br><span class="text-xs text-gray-400">QR: ${p.qr}</span></td>
+            <td class="p-2 font-semibold">${p.nombre || 'Sin nombre'}<br><span class="text-xs text-gray-400">QR: ${p.qr}</span></td>
             <td class="p-2 text-center font-bold">${p.cantidad}</td>
             <td class="p-2 text-center text-xs text-gray-400">${p.cantMinima}</td>
           </tr>
         `).join('');
+      })
+      .catch(() => {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-red-500">Error al cargar datos</td></tr>';
       });
     }
   </script>
